@@ -92,6 +92,42 @@ export type {
 	DiscordUser,
 } from "./oauth/DiscordOAuth.js";
 export { OAuthTokenStorage } from "./oauth/OAuthTokenStorage.js";
+export {
+	OAuth2Builder,
+	OAuth2BuilderError,
+	OAuth2RequestError,
+} from "./oauth/OAuth2Builder.js";
+export type {
+	OAuth2AuthorizationInfo,
+	OAuth2AuthorizationUrl,
+	OAuth2AuthorizedGuild,
+	OAuth2BuilderErrorCode,
+	OAuth2BuilderOptions,
+	OAuth2ConsentEntry,
+	OAuth2ConsentGroup,
+	OAuth2IntegrationType,
+	OAuth2Prompt,
+	OAuth2RequestOptions,
+	OAuth2ResponseType,
+	OAuth2TokenResponse,
+	OAuth2TokenType,
+} from "./oauth/OAuth2Builder.js";
+export {
+	OAUTH2_AUTHORIZE_URL,
+	OAUTH2_ME_URL,
+	OAUTH2_REVOKE_URL,
+	OAUTH2_TOKEN_URL,
+	OAuth2Scope,
+	OAuth2ScopeCategories,
+	OAuth2ScopeDescriptions,
+	OAuth2ScopeMetadata,
+	OAuth2ScopePresets,
+	RestrictedOAuth2Scopes,
+	describeOAuth2Scopes,
+	isOAuth2Scope,
+	requiresOAuth2ScopeApproval,
+} from "./oauth/OAuth2Scopes.js";
+export type { OAuth2ScopeCategory } from "./oauth/OAuth2Scopes.js";
 export type {
 	DiscordLocale,
 	LocalizationMap,
@@ -102,12 +138,100 @@ export type {
 
 
 // New v10 core modules
-export { DiscordRestClient } from "./core/http/DiscordRestClient.js";
+export {
+	DiscordRestClient,
+	DiscordRestApiError,
+} from "./core/http/DiscordRestClient.js";
 export type {
 	DiscordRestClientOptions,
 	DiscordMemberEditOptions,
 	DiscordRoleOptions,
+	SendGameStatsOptions,
+	LobbyCreateOptions,
+	LobbyModifyOptions,
+	LobbyCreateOrJoinOptions,
+	LobbyMessageSendOptions,
 } from "./core/http/DiscordRestClient.js";
+export {
+	LobbyMemberFlags,
+	LOBBY_LIMITS,
+	LOBBY_DEVELOPMENT_RATE_LIMITS,
+	canLinkLobby,
+	linkedChannelId,
+	metadataLength,
+} from "./lobby/Lobby.js";
+export type {
+	APILobby,
+	APILobbyInvite,
+	APILobbyMember,
+	APILobbyMessage,
+	LobbyMemberInput,
+	LobbyMemberUpdateInput,
+	LobbyMetadata,
+} from "./lobby/Lobby.js";
+export {
+	DynamicFieldType,
+	APPLICATION_IDENTITY_LIMITS,
+	APPLICATION_IDENTITY_PROFILE_ERRORS,
+	ApplicationIdentityProfileError,
+	isPublicMediaUrl,
+	serializeProfileData,
+	assertProfileDataWithinLimits,
+	assertUsernameLength,
+	buildProfileData,
+	mergeProfileData,
+} from "./identity/ApplicationIdentityProfile.js";
+export type {
+	APIApplicationIdentity,
+	ApplicationIdentityProfile,
+	ApplicationIdentityProfileData,
+	ApplicationIdentityProfileErrorCode,
+	ApplicationIdentityProviderType,
+	DynamicProfileField,
+	PrimaryProfileData,
+	ProfileMedia,
+	UpdateIdentityProfileBody,
+} from "./identity/ApplicationIdentityProfile.js";
+export {
+	WebhookEventPayloadType,
+	WebhookEventIntegrationType,
+	WebhookEventType,
+	isWebhookEventPayload,
+} from "./events/WebhookEvent.js";
+export type {
+	ApplicationAuthorizedEventData,
+	ApplicationDeauthorizedEventData,
+	GameDirectMessageEventData,
+	LobbyMessageDeleteEventData,
+	LobbyMessageEventData,
+	LobbyMessageUpdateEventData,
+	WebhookEventBody,
+	WebhookEventDataMap,
+	WebhookEventMessage,
+	WebhookEventMessageBody,
+	WebhookEventPayload,
+	WebhookEventPayloadOf,
+	WebhookEventPingPayload,
+	WebhookEventRequest,
+	WebhookEventSdkDirectMessage,
+} from "./events/WebhookEvent.js";
+export {
+	InvalidWebhookEventSignatureError,
+	verifyWebhookEventRequest,
+} from "./events/WebhookEventVerifier.js";
+export type { VerifyWebhookEventRequest } from "./events/WebhookEventVerifier.js";
+export { WebhookEventRouter, WebhookEventEndpoint } from "./events/WebhookEventRouter.js";
+export type {
+	WebhookEventAnyHandler,
+	WebhookEventContext,
+	WebhookEventEndpointOptions,
+	WebhookEventEndpointResult,
+	WebhookEventErrorHandler,
+	WebhookEventHandler,
+	WebhookEventHttpRequest,
+	WebhookEventMiddleware,
+	WebhookEventPingHandler,
+} from "./events/WebhookEventRouter.js";
 export { DiscordSentMessage } from "./core/messages/DiscordSentMessage.js";
 export type {
 	DiscordMessageFile,

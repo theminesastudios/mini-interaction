@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Added
+- **Lobbies & Linked Channels**: `DiscordRestClient.createLobby`, `createOrJoinLobby`, `getLobby`, `modifyLobby`, `deleteLobby`, `addLobbyMember`, `bulkUpdateLobbyMembers`, `removeLobbyMember`, `linkChannelToLobby`, `unlinkChannelFromLobby`, `sendLobbyMessage`, `getLobbyMessages`, `createLobbyChannelInviteForSelf` and `createLobbyChannelInviteForUser`. User-scoped calls (channel linking, lobby messages, self-invites, create-or-join) take a Bearer user token with the `sdk.social_layer` scope instead of the bot token.
+- `src/lobby/Lobby.ts` with lobby/member/message types, `LobbyMemberFlags.CanLinkLobby`, `LOBBY_LIMITS`, the documented `LOBBY_DEVELOPMENT_RATE_LIMITS` (channel linking is capped at 20 calls per 2 hours in development), and `canLinkLobby` / `linkedChannelId` / `metadataLength` helpers.
+- **Webhook Events** support: `WebhookEventRouter` (per-event handlers with a typed `event.data`, `onAny` fallback, middleware and an error hook), `WebhookEventEndpoint` implementing Discord's documented ack contract (`204` acked, `401` bad signature, `400` unparseable, `500` handler failure) with a Fetch-API `handleFetch` helper and an optional `waitUntil` hand-off, `verifyWebhookEventRequest` for Ed25519 verification, and typed payloads for all 12 event names — `APPLICATION_*`, `ENTITLEMENT_*`, `LOBBY_MESSAGE_*` and `GAME_DIRECT_MESSAGE_*`, including the Social SDK lobby message and provisional-DM message shapes.
+- **Game Stats Widgets** support via the Application Identity Profile API: `DiscordRestClient.updateIdentityProfile`, `getIdentityProfile`, `listIdentitiesByUserId`, `listIdentitiesByExternalId`, `deleteIdentity`, plus a validating `sendGameStats` helper whose `mode: 'merge'` reads first so stats you omit survive Discord's replace-on-PATCH semantics.
+- `src/identity/ApplicationIdentityProfile.ts`: typed primary and dynamic profile fields, Discord's documented limits (10 KB serialized `data`, 30 dynamic fields, 100-character string values), client-side validation that throws `ApplicationIdentityProfileError` with a machine-readable `code`, and `isPublicMediaUrl` for widget media the unfurler cannot reach.
+- **OAuth2Builder** with a fully typed, JSDoc'd scope registry: all 32 Discord scopes as `OAuth2Scope`, per-scope `OAuth2ScopeMetadata`/`OAuth2ScopeDescriptions` copy for rendering a consent screen, `OAuth2ScopeCategories`, `OAuth2ScopePresets` (including the Social SDK's presence and communication sets), `RestrictedOAuth2Scopes`, and a fluent builder that validates the scope/grant combination before a user ever sees a broken consent screen. Token operations (`exchangeCode`, `refresh`, `clientCredentials`, `revokeToken`, `getAuthorizationInfo`) are typed (`OAuth2TokenResponse`, `OAuth2AuthorizationInfo`) and throw `OAuth2BuilderError` / `OAuth2RequestError` with machine-readable `code`/`error` fields.
+
+### Fixed
+- `DiscordRestClient` throws `DiscordRestApiError` for non-2xx responses, exposing `status`, `method`, `path` and `body`. The message format is unchanged, so existing logging keeps working while callers can branch on the status.
+- `sendGameStats` no longer issues any request when there is no `username`, `primary` or `dynamic` — an empty PATCH previously created the Application Identity record as a side effect, and merge mode spent an extra GET.
+- `DiscordRestClient` no longer sends `Content-Type: application/json` on requests without a body, which some strict servers and proxies reject.
+- `isPublicMediaUrl` rejects trailing-dot FQDNs (`localhost.`) and IPv6 link-local/unique-local literals (`[fe80::…]`, `[fd00::…]`) that Discord's unfurler cannot reach.
+
+### Removed
+- The `template/` starter app.
+
 ## 0.9.0 - 2026-08-24
 ### Added
 - Bucket-aware rate limiting in `DiscordRestClient`: learns `X-RateLimit-*` budgets per route, waits for bucket resets before spending calls, and honours `retry_after` from 429 bodies.

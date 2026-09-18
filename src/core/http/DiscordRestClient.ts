@@ -18,6 +18,26 @@ import type {
   RESTPutAPIApplicationRoleConnectionMetadataResult,
 } from 'discord-api-types/v10';
 
+import {
+  assertProfileDataWithinLimits,
+  assertUsernameLength,
+  buildProfileData,
+  mergeProfileData,
+  type APIApplicationIdentity,
+  type ApplicationIdentityProfile,
+  type DynamicProfileField,
+  type PrimaryProfileData,
+  type UpdateIdentityProfileBody,
+} from '../../identity/ApplicationIdentityProfile.js';
+import type {
+  APILobby,
+  APILobbyInvite,
+  APILobbyMember,
+  APILobbyMessage,
+  LobbyMemberInput,
+  LobbyMemberUpdateInput,
+  LobbyMetadata,
+} from '../../lobby/Lobby.js';
 import { DiscordSentMessage } from '../messages/DiscordSentMessage.js';
 import {
   createMessageRequestInit,
@@ -48,6 +68,63 @@ export type DiscordRoleOptions = {
 	unicodeEmoji?: string;
 };
 
+export type SendGameStatsOptions = {
+	/** The player's Discord user ID. */
+	userId: string;
+	/** The player's ID in *your* system (row id, UUID, username) — not a snowflake. */
+	providerIssuedUserId: string;
+	/** The player's username in your system (max 1024 chars). */
+	username?: string;
+	/** Pre-configured Discord stat keys (rank, playtime, wins, …). */
+	primary?: PrimaryProfileData;
+	/** Custom stats (max 30). */
+	dynamic?: DynamicProfileField[];
+	/**
+	 * `"replace"` (default) stores exactly the stats you pass — Discord's native
+	 * behaviour, where any omitted stat is deleted.
+	 * `"merge"` reads the profile first and merges by key, preserving stats you
+	 * omit. Costs one extra request.
+	 */
+	mode?: 'replace' | 'merge';
+	/** Skip the client-side check that media URLs are reachable from Discord. */
+	allowPrivateMediaUrls?: boolean;
+};
+
+export type LobbyCreateOptions = {
+	metadata?: LobbyMetadata;
+	/** Up to 25 users to add on creation. Set `CanLinkLobby` here for the owner. */
+	members?: LobbyMemberInput[];
+	/** Seconds to wait before an idle lobby shuts down (5–604800). */
+	idleTimeoutSeconds?: number;
+};
+
+export type LobbyModifyOptions = {
+	metadata?: LobbyMetadata;
+	/** Replaces the member list; members not listed are removed. Up to 25. */
+	members?: LobbyMemberInput[];
+	idleTimeoutSeconds?: number;
+};
+
+export type LobbyCreateOrJoinOptions = {
+	/** Identifies the lobby. Max 250 characters. */
+	secret: string;
+	idleTimeoutSeconds?: number;
+	lobbyMetadata?: LobbyMetadata;
+	memberMetadata?: LobbyMetadata;
+};
+
+export type LobbyMessageSendOptions = {
+	/** Message content. Must be non-empty. */
+	content: string;
+	/**
+	 * Delivered alongside the message to active Social SDK clients. Not persisted
+	 * on the linked channel message.
+	 */
+	metadata?: LobbyMetadata;
+	/** Only flags creatable by the Social SDK are accepted. */
+	flags?: number;
+};
+
 type FetchLike = typeof fetch;
 
 export type DiscordRestClientOptions = {
@@ -57,6 +134,28 @@ export type DiscordRestClientOptions = {
   maxRetries?: number;
   fetchImplementation?: FetchLike;
 };
+
+/**
+ * Thrown when Discord answers a REST call with a non-2xx status.
+ *
+ * `message` deliberately keeps the historical
+ * `[DiscordRestClient] <METHOD> <path> failed: <status>` shape so existing
+ * logging and `instanceof Error` checks keep working, while `status` lets
+ * callers branch on the code without parsing that string.
+ */
+export class DiscordRestApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly method: string,
+    readonly path: string,
+    readonly body: string,
+  ) {
+    super(
+      `[DiscordRestClient] ${method} ${path} failed: ${status}${body ? ` ${body}` : ''}`,
+    );
+    this.name = 'DiscordRestApiError';
+  }
+}
 
 export class DiscordRestClient {
   private readonly fetchImpl: FetchLike;
@@ -118,8 +217,11 @@ export class DiscordRestClient {
           continue;
         }
 
-        lastError = new Error(
-          `[DiscordRestClient] ${requestInit.method ?? 'GET'} ${path} failed: 429`,
+        lastError = new DiscordRestApiError(
+          429,
+          requestInit.method ?? 'GET',
+          path,
+          '',
         );
         break;
       }
@@ -137,8 +239,11 @@ export class DiscordRestClient {
       }
 
       const errorBody = await response.text();
-      lastError = new Error(
-        `[DiscordRestClient] ${requestInit.method ?? 'GET'} ${path} failed: ${response.status}${errorBody ? ` ${errorBody}` : ''}`,
+      lastError = new DiscordRestApiError(
+        response.status,
+        requestInit.method ?? 'GET',
+        path,
+        errorBody,
       );
       break;
     }
@@ -971,9 +1076,395 @@ export class DiscordRestClient {
       body: JSON.stringify(body),
     });
   }
+
+  // ---- Application Identity profiles / Game Stats Widgets ----
+
+  /**
+   * Writes a player's Game Stats profile.
+   *
+   * `data` is **fully replaced** whenever it is present, so omitting a stat
+   * deletes it; omit `data` entirely to leave stored stats untouched. Prefer
+   * {@link sendGameStats} with `mode: "merge"` when patching individual stats.
+   *
+   * Requires a bot token, the `application_identities.write` OAuth2 scope on
+   * the target user, and a *claimed* game with a configured widget.
+   *
+   * @returns the created profile on the first write (201), `undefined` on
+   * subsequent updates (204).
+   * @see {@link https://docs.discord.com/developers/resources/application-identity-profile}
+   */
+  updateIdentityProfile(
+    userId: string,
+    providerIssuedUserId: string,
+    body: UpdateIdentityProfileBody,
+  ): Promise<ApplicationIdentityProfile | undefined> {
+    return this.request<ApplicationIdentityProfile | undefined>(
+      `${this.identityPath(userId, providerIssuedUserId)}/profile`,
+      { method: 'PATCH', body: JSON.stringify(body) },
+    );
+  }
+
+  /**
+   * Reads a player's stored Game Stats profile.
+   *
+   * `metadata` is returned by reads; the documented update parameters are only
+   * `username` and `data`.
+   */
+  getIdentityProfile(
+    userId: string,
+    providerIssuedUserId: string,
+  ): Promise<ApplicationIdentityProfile> {
+    return this.request<ApplicationIdentityProfile>(
+      `${this.identityPath(userId, providerIssuedUserId)}/profile`,
+    );
+  }
+
+  /** Lists a user's application identities for this application (no profile data). */
+  listIdentitiesByUserId(userId: string): Promise<APIApplicationIdentity[]> {
+    return this.request<{ identities?: APIApplicationIdentity[] }>(
+      `/applications/${this.options.applicationId}/users/${userId}/identities`,
+    ).then((result) => result.identities ?? []);
+  }
+
+  /** Resolves the Discord user behind one of your external IDs (no profile data). */
+  listIdentitiesByExternalId(
+    providerType: string,
+    providerIssuedUserId: string,
+    providerId?: string,
+  ): Promise<APIApplicationIdentity[]> {
+    const params = new URLSearchParams();
+    if (providerId !== undefined) params.set('provider_id', providerId);
+    const query = params.size > 0 ? `?${params.toString()}` : '';
+
+    return this.request<{ identities?: APIApplicationIdentity[] }>(
+      `/applications/${this.options.applicationId}/identities/${encodeURIComponent(providerType)}/${encodeURIComponent(providerIssuedUserId)}${query}`,
+    ).then((result) => result.identities ?? []);
+  }
+
+  /**
+   * Deletes one application identity and its profile data.
+   *
+   * Blocked when it would remove the user's last account-linking identity.
+   * Useful when a stale `provider_issued_user_id` prevents writing stats.
+   */
+  async deleteIdentity(
+    userId: string,
+    providerType: string,
+    providerIssuedUserId: string,
+    providerId?: string,
+  ): Promise<void> {
+    await this.request(
+      `/applications/${this.options.applicationId}/users/${userId}/identities/${encodeURIComponent(providerType)}/${encodeURIComponent(providerIssuedUserId)}`,
+      {
+        method: 'DELETE',
+        body: providerId !== undefined ? JSON.stringify({ provider_id: providerId }) : undefined,
+      },
+    );
+  }
+
+  /**
+   * Sends Game Stats for a player, validating Discord's limits client-side.
+   *
+   * ```ts
+   * await rest.sendGameStats({
+   *   userId,                     // Discord user id
+   *   providerIssuedUserId,       // your own player id
+   *   primary: { season: 'Season 3', rank_name: 'Silver', playtime_hours: 69.41 },
+   *   dynamic: [{ type: 2, name: 'win_streak', value: 5 }],
+   * });
+   * ```
+   *
+   * Resolves with `undefined` **without issuing any request** when there is
+   * nothing to write — no `username`, `primary` or `dynamic`. An empty PATCH
+   * would otherwise still create the Application Identity record.
+   *
+   * @throws {ApplicationIdentityProfileError} when the payload would exceed the
+   * 10 KB / 30-field / length limits, or references a media URL Discord cannot fetch.
+   */
+  async sendGameStats(
+    options: SendGameStatsOptions,
+  ): Promise<ApplicationIdentityProfile | undefined> {
+    const {
+      userId,
+      providerIssuedUserId,
+      username,
+      primary,
+      dynamic,
+      mode = 'replace',
+      allowPrivateMediaUrls,
+    } = options;
+
+    // Nothing to write: skip every request. A PATCH with an empty body would
+    // still create the Application Identity record on Discord's side, and merge
+    // mode would additionally spend a GET discovering there is nothing to merge.
+    if (username === undefined && primary === undefined && dynamic === undefined) {
+      return undefined;
+    }
+
+    if (username !== undefined) assertUsernameLength(username);
+
+    const data =
+      mode === 'merge'
+        ? mergeProfileData(
+            (await this.readIdentityProfileOrUndefined(userId, providerIssuedUserId))?.data,
+            { primary, dynamic },
+          )
+        : buildProfileData({ primary, dynamic });
+
+    if (data) assertProfileDataWithinLimits(data, { allowPrivateMediaUrls });
+
+    const body: UpdateIdentityProfileBody = {};
+    if (username !== undefined) body.username = username;
+    if (data !== undefined) body.data = data;
+
+    return this.updateIdentityProfile(userId, providerIssuedUserId, body);
+  }
+
+  /**
+   * Reads a profile for merge mode, treating a missing identity (404) as empty
+   * rather than surfacing an error. Branches on the typed status instead of the
+   * error message so a message-format change cannot break merge mode.
+   */
+  private async readIdentityProfileOrUndefined(
+    userId: string,
+    providerIssuedUserId: string,
+  ): Promise<ApplicationIdentityProfile | undefined> {
+    try {
+      return await this.getIdentityProfile(userId, providerIssuedUserId);
+    } catch (error) {
+      if (error instanceof DiscordRestApiError && error.status === 404) return undefined;
+      throw error;
+    }
+  }
+
+  private identityPath(userId: string, providerIssuedUserId: string): string {
+    return `/applications/${this.options.applicationId}/users/${userId}/identities/${encodeURIComponent(providerIssuedUserId)}`;
+  }
+
+  // ---- Lobbies & Linked Channels ----
+
+  /**
+   * Creates a lobby. Social SDK clients cannot join a lobby created this way —
+   * see {@link createOrJoinLobby} for the SDK-compatible flow.
+   *
+   * @see {@link https://docs.discord.com/developers/resources/lobby}
+   */
+  createLobby(options: LobbyCreateOptions = {}): Promise<APILobby> {
+    return this.request<APILobby>('/lobbies', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(options.metadata ? { metadata: options.metadata } : {}),
+        ...(options.members ? { members: options.members } : {}),
+        ...(options.idleTimeoutSeconds !== undefined
+          ? { idle_timeout_seconds: options.idleTimeoutSeconds }
+          : {}),
+      }),
+    });
+  }
+
+  /**
+   * Creates a lobby for a `secret`, or joins the caller to the existing one.
+   *
+   * Needs a **Bearer** user token with the `sdk.social_layer` scope, not the bot
+   * token — pass it as `userToken`.
+   */
+  createOrJoinLobby(userToken: string, options: LobbyCreateOrJoinOptions): Promise<APILobby> {
+    return this.request<APILobby>('/lobbies', {
+      method: 'PUT',
+      body: JSON.stringify({
+        secret: options.secret,
+        ...(options.idleTimeoutSeconds !== undefined
+          ? { idle_timeout_seconds: options.idleTimeoutSeconds }
+          : {}),
+        ...(options.lobbyMetadata ? { lobby_metadata: options.lobbyMetadata } : {}),
+        ...(options.memberMetadata ? { member_metadata: options.memberMetadata } : {}),
+      }),
+      ...this.asUser(userToken),
+    });
+  }
+
+  /** Reads a lobby, including its `linked_channel` when one is linked. */
+  getLobby(lobbyId: string): Promise<APILobby> {
+    return this.request<APILobby>(`/lobbies/${lobbyId}`);
+  }
+
+  /** Replaces lobby metadata, its member list and/or its idle timeout. */
+  modifyLobby(lobbyId: string, options: LobbyModifyOptions = {}): Promise<APILobby> {
+    return this.request<APILobby>(`/lobbies/${lobbyId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        ...(options.metadata ? { metadata: options.metadata } : {}),
+        ...(options.members ? { members: options.members } : {}),
+        ...(options.idleTimeoutSeconds !== undefined
+          ? { idle_timeout_seconds: options.idleTimeoutSeconds }
+          : {}),
+      }),
+    });
+  }
+
+  /** Deletes a lobby. Safe to call when it is already gone. */
+  async deleteLobby(lobbyId: string): Promise<void> {
+    await this.request(`/lobbies/${lobbyId}`, { method: 'DELETE' });
+  }
+
+  /**
+   * Adds a user to a lobby, or updates them when they are already a member.
+   *
+   * Pass `flags: LobbyMemberFlags.CanLinkLobby` to let that user configure the
+   * lobby's linked channel — grant it only to the lobby owner/administrator.
+   */
+  addLobbyMember(
+    lobbyId: string,
+    userId: string,
+    options: Omit<LobbyMemberInput, 'id'> = {},
+  ): Promise<APILobbyMember> {
+    return this.request<APILobbyMember>(`/lobbies/${lobbyId}/members/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        ...(options.metadata !== undefined ? { metadata: options.metadata } : {}),
+        ...(options.flags !== undefined ? { flags: options.flags } : {}),
+        ...(options.additional_name !== undefined
+          ? { additional_name: options.additional_name }
+          : {}),
+      }),
+    });
+  }
+
+  /**
+   * Upserts or removes up to 25 members in one request.
+   *
+   * Members are upserted unless `remove_member: true`. Users failing permission
+   * checks — or already at the per-application lobby cap and not already a
+   * member — are **silently dropped**, so treat the response as authoritative.
+   */
+  bulkUpdateLobbyMembers(
+    lobbyId: string,
+    members: LobbyMemberUpdateInput[],
+  ): Promise<APILobbyMember[]> {
+    return this.request<APILobbyMember[]>(`/lobbies/${lobbyId}/members/bulk`, {
+      method: 'POST',
+      body: JSON.stringify(members),
+    });
+  }
+
+  /** Removes a member. Safe when they already left, but fails if the lobby is gone. */
+  async removeLobbyMember(lobbyId: string, userId: string): Promise<void> {
+    await this.request(`/lobbies/${lobbyId}/members/${userId}`, { method: 'DELETE' });
+  }
+
+  /**
+   * Links a guild text channel to a lobby.
+   *
+   * - Needs a **Bearer** user token: the acting user must be a lobby member with
+   *   {@link LobbyMemberFlags.CanLinkLobby}.
+   * - The channel must be a guild text channel, not age-restricted, and not
+   *   already linked to another lobby.
+   * - **Every lobby member can read and post** in the linked channel in-game,
+   *   even when it is private in Discord. Warn the user performing the link.
+   * - Capped at 20 calls per 2 hours per application in development.
+   *
+   * @returns the lobby, with `linked_channel` populated.
+   */
+  linkChannelToLobby(lobbyId: string, channelId: string, userToken: string): Promise<APILobby> {
+    return this.request<APILobby>(`/lobbies/${lobbyId}/channel-linking`, {
+      method: 'PATCH',
+      body: JSON.stringify({ channel_id: channelId }),
+      ...this.asUser(userToken),
+    });
+  }
+
+  /**
+   * Unlinks the lobby's channel by sending the same endpoint an empty body.
+   *
+   * Needs a **Bearer** user token whose user has the `CanLinkLobby` flag — but
+   * **no** Discord-side channel permissions.
+   */
+  unlinkChannelFromLobby(lobbyId: string, userToken: string): Promise<APILobby> {
+    return this.request<APILobby>(`/lobbies/${lobbyId}/channel-linking`, {
+      method: 'PATCH',
+      body: JSON.stringify({}),
+      ...this.asUser(userToken),
+    });
+  }
+
+  /**
+   * Sends a message to a lobby. Forwarded to the linked channel when one is
+   * linked; if forwarding fails (e.g. AutoMod) the lobby message is still
+   * delivered to other members.
+   *
+   * Needs a **Bearer** user token — the caller must be a lobby member.
+   */
+  sendLobbyMessage(
+    lobbyId: string,
+    options: LobbyMessageSendOptions,
+    userToken: string,
+  ): Promise<APILobbyMessage> {
+    return this.request<APILobbyMessage>(`/lobbies/${lobbyId}/messages`, {
+      method: 'POST',
+      body: JSON.stringify({
+        content: options.content,
+        ...(options.metadata ? { metadata: options.metadata } : {}),
+        ...(options.flags !== undefined ? { flags: options.flags } : {}),
+      }),
+      ...this.asUser(userToken),
+    });
+  }
+
+  /** Lists recent lobby messages (1–200, default 50) for a member of the lobby. */
+  getLobbyMessages(
+    lobbyId: string,
+    userToken: string,
+    options: { limit?: number } = {},
+  ): Promise<APILobbyMessage[]> {
+    const query = options.limit !== undefined ? `?limit=${options.limit}` : '';
+    return this.request<APILobbyMessage[]>(`/lobbies/${lobbyId}/messages${query}`, {
+      ...this.asUser(userToken),
+    });
+  }
+
+  /**
+   * Creates a single-use invite to the lobby's linked channel for the calling
+   * user — the equivalent of the SDK's `JoinLinkedLobbyGuild`.
+   *
+   * Needs a **Bearer** user token and a linked channel. Expires after one hour.
+   * Only users with a real linked Discord account can join; provisional accounts
+   * must link first. Note that server admins cannot restrict who may join this
+   * way — any lobby member can mint an invite.
+   */
+  createLobbyChannelInviteForSelf(
+    lobbyId: string,
+    userToken: string,
+  ): Promise<APILobbyInvite> {
+    return this.request<APILobbyInvite>(`/lobbies/${lobbyId}/members/@me/invites`, {
+      method: 'POST',
+      ...this.asUser(userToken),
+    });
+  }
+
+  /** Creates a linked-channel invite on behalf of the application, for one user. */
+  createLobbyChannelInviteForUser(lobbyId: string, userId: string): Promise<APILobbyInvite> {
+    return this.request<APILobbyInvite>(`/lobbies/${lobbyId}/members/${userId}/invites`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Switches authenticated requests to a **Bearer** user token.
+   *
+   * Lobby operations acting on behalf of a user need the user's token with the
+   * `sdk.social_layer` scope; the default bot token is rejected. `authenticated:
+   * false` suppresses the `Authorization: Bot …` header, and the explicit header
+   * is merged last so it wins.
+   */
+  private asUser(userToken: string): Pick<RequestInit, 'headers'> & { authenticated: false } {
+    return { authenticated: false, headers: { Authorization: `Bearer ${userToken}` } };
+  }
 }
 
 function getDefaultContentTypeHeader(body: RequestInit['body']): HeadersInit {
+  // A body-less request (DELETE, a GET with no payload) must not claim to be
+  // JSON: strict servers reject a Content-Type that does not match the body.
+  if (body === undefined || body === null) return {};
   return body instanceof FormData ? {} : { 'Content-Type': 'application/json' };
 }
 
