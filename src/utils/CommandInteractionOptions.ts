@@ -22,7 +22,6 @@ import {
 	type APIInteractionDataResolvedGuildMember,
 	type APIModalInteractionResponse,
 	type APIModalInteractionResponseCallbackData,
-	type APIInteractionResponseCallbackData,
 	type APIInteractionResponseChannelMessageWithSource,
 	type APIInteractionResponseDeferredChannelMessageWithSource,
 	type APIInteractionResponseUpdateMessage,
@@ -38,9 +37,6 @@ import {
 	normaliseInteractionMessageData,
 	normaliseMessageFlags,
 } from "./interactionMessageHelpers.js";
-import {
-	InteractionFlags,
-} from "../types/InteractionFlags.js";
 
 type BasicInteractionOption =
 	APIApplicationCommandInteractionDataBasicOption<InteractionType.ApplicationCommand>;

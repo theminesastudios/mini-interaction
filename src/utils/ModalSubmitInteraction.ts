@@ -5,9 +5,7 @@ import {
 	type APIInteractionResponseDeferredChannelMessageWithSource,
 	type APIModalSubmitInteraction,
 	type APIRole,
-	type APIUser,
 	type APIInteractionDataResolvedChannel,
-	type APIInteractionDataResolvedGuildMember,
 	type APIAttachment,
 } from "discord-api-types/v10";
 
