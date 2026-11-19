@@ -1,5 +1,4 @@
 import { ComponentType } from "discord-api-types/v10";
-import type { APIActionRowComponent } from "discord-api-types/v10";
 
 import { resolveJSONEncodable } from "./shared.js";
 import type { JSONEncodable } from "./shared.js";

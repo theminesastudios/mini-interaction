@@ -3,14 +3,12 @@ import assert from "node:assert/strict";
 
 import { InteractionRouter } from "./InteractionRouter.js";
 import { InteractionContext } from "../core/interactions/InteractionContext.js";
-import { createModalSubmitInteraction } from "../utils/ModalSubmitInteraction.js";
 import type {
 	APIApplicationCommandAutocompleteInteraction,
 	APIChatInputApplicationCommandInteraction,
 	APIInteraction,
 	APIInteractionResponse,
 	APIMessageComponentInteraction,
-	APIModalSubmitInteraction,
 	APIUserApplicationCommandInteraction,
 } from "discord-api-types/v10";
 

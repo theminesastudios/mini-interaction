@@ -1,5 +1,4 @@
 import {
-	ComponentType,
 	InteractionResponseType,
 	type APIInteractionDataResolvedChannel,
 	type APIInteractionDataResolvedGuildMember,

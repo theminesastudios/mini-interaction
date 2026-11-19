@@ -4,15 +4,12 @@ import type {
 	MessageFlags,
 } from "discord-api-types/v10";
 import type {
-	APIActionRowComponent,
-	APIComponentInMessageActionRow,
 	APIContainerComponent,
 } from "discord-api-types/v10";
 import { resolveJSONEncodable } from "../builders/shared.js";
 import type { JSONEncodable } from "../builders/shared.js";
 import {
 	ComponentType,
-	MessageFlags as RawMessageFlags,
 } from "discord-api-types/v10";
 
 import { InteractionFlags } from "../types/InteractionFlags.js";
