@@ -4,5 +4,3 @@ import { PermissionFlagsBits } from "discord-api-types/v10";
 export const MiniPermFlags = {
         ...PermissionFlagsBits,
 } as const;
-
-export type MiniPermFlag = (typeof MiniPermFlags)[keyof typeof MiniPermFlags];

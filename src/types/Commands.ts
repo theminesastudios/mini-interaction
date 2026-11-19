@@ -98,6 +98,3 @@ export type InteractionModal = {
     customId: string;
     handler: (interaction: ModalSubmitInteraction) => Promise<APIInteractionResponse | void> | APIInteractionResponse | void;
 };
-
-/** Map of command names to their registered MiniInteraction command definitions. */
-export type InteractionCommandsMap = Map<string, InteractionCommand>;
