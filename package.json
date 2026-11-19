@@ -46,12 +46,10 @@
     "@vercel/functions": "^1.6.0",
     "discord-api-types": "^0.38.32",
     "discord-interactions": "^4.4.0",
-    "dotenv": "^17.2.3",
     "mongodb": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^24.10.0",
-    "ts-node": "^10.9.2",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
   }
